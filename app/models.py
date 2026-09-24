@@ -8,6 +8,8 @@ from sqlalchemy import (
     Text,
     Date,
     Enum as SAEnum,
+    UniqueConstraint,
+    JSON,
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -320,8 +322,40 @@ class ProjectStatusLog(Base):
     operator = Column(String(64))
     reason = Column(String(512))
     remarks = Column(Text)
+    # 受控回退审计字段：普通流转 log_kind 为 normal；回退为 rollback
+    log_kind = Column(String(16), nullable=False, default="normal", index=True)
+    request_id = Column(String(64), index=True)
+    affected_records = Column(JSON)
 
     project = relationship("Project", back_populates="status_logs")
+
+
+class ProjectRollbackRequest(Base):
+    """受控回退请求：按 request_id 幂等，服务重启后仍可查询。"""
+
+    __tablename__ = "project_status_rollback_requests"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_rollback_request_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(String(64), nullable=False, unique=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    operator = Column(String(64), nullable=False)
+    operator_role = Column(String(64), nullable=False)
+    reason = Column(String(1024), nullable=False)
+    remarks = Column(Text)
+    from_status = Column(SAEnum(ProjectStatus), nullable=False)
+    to_status = Column(SAEnum(ProjectStatus), nullable=False)
+    # applied（已执行回退）/ rejected（条件不满足被拒绝）
+    result = Column(String(16), nullable=False, index=True)
+    reject_reasons = Column(JSON)
+    affected_records = Column(JSON)
+    status_log_id = Column(Integer, ForeignKey("project_status_logs.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    project = relationship("Project")
+    status_log = relationship("ProjectStatusLog")
 
 
 class MonthlyCapacityReport(Base):

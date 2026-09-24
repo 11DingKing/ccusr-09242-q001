@@ -19,6 +19,12 @@ from .services.status_flow import (
     trigger_status_after_approval,
     StatusTransitionError,
 )
+from .services.rollback import (
+    submit_rollback,
+    get_rollback_request as _svc_get_rollback_request,
+    list_rollback_requests as _svc_list_rollback_requests,
+    _get_project_for_rollback,
+)
 from .services.milestones import (
     process_milestone_update,
     build_default_milestones,
@@ -59,7 +65,9 @@ def list_entities(
 
 
 def create_entity(db: Session, obj_in: schemas.EntityCreate):
-    capabilities_data = obj_in.capabilities.model_dump() if hasattr(obj_in, 'capabilities') else []
+    capabilities_data = [
+        c.model_dump() for c in getattr(obj_in, "capabilities", []) or []
+    ]
     entity_data = obj_in.model_dump(exclude={"capabilities"})
     db_entity = models.Entity(**entity_data)
     db.add(db_entity)
@@ -265,6 +273,31 @@ def get_project_status_logs(db: Session, project_id: int):
         .order_by(models.ProjectStatusLog.changed_at.desc())
         .all()
     )
+
+
+def submit_project_rollback(
+    db: Session,
+    project_id: int,
+    payload: schemas.ProjectRollbackRequest,
+):
+    """返回 (project, rollback_record, applied)；项目不存在返回 None。"""
+    project = _get_project_for_rollback(db, project_id)
+    if not project:
+        return None
+    record, applied = submit_rollback(db, project, payload)
+    return project, record, applied
+
+
+def get_rollback_request(db: Session, request_id: str):
+    return _svc_get_rollback_request(db, request_id)
+
+
+def list_rollback_requests(
+    db: Session,
+    project_id: Optional[int] = None,
+    result: Optional[str] = None,
+):
+    return _svc_list_rollback_requests(db, project_id=project_id, result=result)
 
 
 def get_intent(db: Session, intent_id: int):

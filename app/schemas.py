@@ -240,6 +240,36 @@ class StatusChangeRequest(BaseModel):
     remarks: Optional[str] = None
 
 
+class ProjectRollbackRequest(BaseModel):
+    request_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="客户端生成的幂等键；同一 request_id 重复提交返回首次结果",
+    )
+    operator: str = Field(..., min_length=1, max_length=64, description="发起回退的操作人")
+    operator_role: str = Field(
+        "招商主管",
+        max_length=64,
+        description="操作人岗位角色，仅受控角色可发起回退",
+    )
+    target_status: Optional[ProjectStatus] = Field(
+        None,
+        description="目标状态，缺省时回退到紧邻的上一阶段",
+    )
+    reason: str = Field(..., min_length=1, max_length=1024, description="回退理由（必填）")
+    remarks: Optional[str] = None
+
+
+class AffectedRecord(BaseModel):
+    type: str = Field(..., description="受影响记录类型，如 milestone/approval")
+    id: Optional[int] = None
+    name: Optional[str] = None
+    status: Optional[str] = None
+    effect: str = Field(..., description="retained（保留）/checked（校验对象）")
+    detail: Optional[str] = None
+
+
 class ProjectStatusLogBase(BaseModel):
     from_status: Optional[ProjectStatus] = None
     to_status: ProjectStatus
@@ -252,8 +282,45 @@ class ProjectStatusLog(ProjectStatusLogBase):
     id: int
     project_id: int
     changed_at: datetime
+    log_kind: str = "normal"
+    request_id: Optional[str] = None
+    affected_records: Optional[List[AffectedRecord]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectRollbackRecord(BaseModel):
+    request_id: str
+    project_id: int
+    operator: str
+    operator_role: str
+    reason: str
+    remarks: Optional[str] = None
+    from_status: ProjectStatus
+    to_status: ProjectStatus
+    result: str = Field(..., description="applied（已执行）/ rejected（已拒绝）")
+    reject_reasons: List[str] = Field(default_factory=list)
+    affected_records: List[AffectedRecord] = Field(default_factory=list)
+    status_log_id: Optional[int] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProjectRollbackResponse(BaseModel):
+    request_id: str
+    project_id: int
+    result: str
+    from_status: ProjectStatus
+    to_status: ProjectStatus
+    operator: str
+    operator_role: str
+    reason: str
+    reject_reasons: List[str] = Field(default_factory=list)
+    affected_records: List[AffectedRecord] = Field(default_factory=list)
+    status_log_id: Optional[int] = None
+    created_at: datetime
+    project_status: ProjectStatus
 
 
 class NegotiationRecordBase(BaseModel):
