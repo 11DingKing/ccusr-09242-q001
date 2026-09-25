@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from datetime import datetime, date
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
+import json
 
 from .enums import (
     Region,
@@ -251,9 +252,74 @@ class ProjectStatusLogBase(BaseModel):
 class ProjectStatusLog(ProjectStatusLogBase):
     id: int
     project_id: int
+    action: str = "transition"
+    request_id: Optional[str] = None
+    affected_records: Optional[Dict[str, Any]] = None
     changed_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("affected_records", mode="before")
+    @classmethod
+    def _parse_affected_records(cls, value):
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except ValueError:
+                return None
+        return value
+
+
+class MilestoneSnapshot(BaseModel):
+    id: int
+    sequence: int
+    name: str
+    milestone_type: MilestoneType
+    status: MilestoneStatus
+
+
+class ApprovalSnapshot(BaseModel):
+    id: int
+    approval_number: str
+    approval_date: date
+    approving_authority: str
+    agreed_investment_10k: float
+
+
+class RollbackAffectedRecords(BaseModel):
+    """回退时点仍然有效的业务记录：保留的立项依据与未完成里程碑。"""
+
+    preserved_approval: Optional[ApprovalSnapshot] = None
+    pending_milestones: List[MilestoneSnapshot] = Field(default_factory=list)
+    capacity_report_count: int = 0
+
+
+class RollbackRequest(BaseModel):
+    to_status: ProjectStatus = Field(..., description="回退目标状态，必须早于当前状态")
+    operator: str = Field(..., min_length=1, max_length=64, description="操作人，须在授权名单内")
+    reason: str = Field(..., min_length=1, max_length=512, description="回退理由，必填")
+    request_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="幂等键：同一项目同一 request_id 重复提交返回首次结果",
+    )
+    remarks: Optional[str] = None
+
+
+class RollbackResponse(BaseModel):
+    project_id: int
+    log_id: int
+    request_id: str
+    idempotent_replay: bool = Field(
+        ..., description="是否为重复提交的幂等重放（true 表示未重复执行）"
+    )
+    from_status: ProjectStatus
+    to_status: ProjectStatus
+    operator: Optional[str] = None
+    reason: Optional[str] = None
+    affected_records: Optional[RollbackAffectedRecords] = None
+    logged_at: datetime
 
 
 class NegotiationRecordBase(BaseModel):

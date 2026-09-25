@@ -1,3 +1,4 @@
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from typing import Optional, List
 from datetime import datetime
@@ -11,6 +12,12 @@ from .enums import (
     FollowUpStatus,
     FollowUpPriority,
     ProcessingCategory,
+)
+from .services.rollback import (
+    ensure_operator_authorized,
+    execute_controlled_rollback,
+    load_rollback_outcome,
+    RollbackOutcome,
 )
 from .services.status_flow import (
     validate_status_transition,
@@ -258,13 +265,47 @@ def change_project_status(
     return db_project
 
 
-def get_project_status_logs(db: Session, project_id: int):
-    return (
-        db.query(models.ProjectStatusLog)
-        .filter(models.ProjectStatusLog.project_id == project_id)
-        .order_by(models.ProjectStatusLog.changed_at.desc())
-        .all()
+def get_project_status_logs(
+    db: Session,
+    project_id: int,
+    action: Optional[str] = None,
+):
+    query = db.query(models.ProjectStatusLog).filter(
+        models.ProjectStatusLog.project_id == project_id
     )
+    if action:
+        query = query.filter(models.ProjectStatusLog.action == action)
+    return query.order_by(models.ProjectStatusLog.changed_at.desc()).all()
+
+
+def rollback_project(
+    db: Session,
+    project_id: int,
+    req: schemas.RollbackRequest,
+) -> Optional[RollbackOutcome]:
+    """受控回退：鉴权 → 幂等识别 → 历史一致性校验 → 执行并写审计日志。"""
+    db_project = get_project(db, project_id)
+    if not db_project:
+        return None
+    ensure_operator_authorized(req.operator)
+    try:
+        outcome = execute_controlled_rollback(
+            db,
+            db_project,
+            to_status=req.to_status,
+            operator=req.operator,
+            reason=req.reason,
+            request_id=req.request_id,
+            remarks=req.remarks,
+        )
+        db.commit()
+    except IntegrityError:
+        # 并发下同一 request_id 已被其他请求写入：回滚后按幂等返回首次结果
+        db.rollback()
+        outcome = load_rollback_outcome(db, project_id, req.request_id)
+        if outcome is None:
+            raise
+    return outcome
 
 
 def get_intent(db: Session, intent_id: int):

@@ -2,10 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .database import Base, engine
+from .database import Base, engine, ensure_schema_upgrades
 from .routers import entities, parks, projects, workflow, statistics, capacity
 
 Base.metadata.create_all(bind=engine)
+ensure_schema_upgrades()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

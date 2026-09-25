@@ -5,6 +5,7 @@ class HTTPStatus(IntEnum):
     OK = 200
     CREATED = 201
     BAD_REQUEST = 400
+    FORBIDDEN = 403
     NOT_FOUND = 404
     CONFLICT = 409
 
@@ -38,6 +39,14 @@ ERROR_STATUS = {
 ERROR_OPERATION_FAILED = {
     "approval": "立项失败",
     "capacity_report": "登记失败",
+}
+
+ERROR_ROLLBACK = {
+    "operator_not_authorized": "操作人「{operator}」无项目回退权限，受控回退仅授权人员可发起",
+    "same_status": "项目当前已是「{status}」，无需回退",
+    "forward_not_allowed": "受控回退只能退回到更早阶段，不允许从「{from_status}」变更为「{to_status}」，如需推进请使用状态流转接口",
+    "completed_milestones": "项目存在已完成里程碑：{names}，回退将使建设历史与项目状态矛盾，请先核实处理",
+    "capacity_reports": "项目已登记 {count} 条月度产能报告，回退将破坏产能兑现历史，不允许回退",
 }
 
 

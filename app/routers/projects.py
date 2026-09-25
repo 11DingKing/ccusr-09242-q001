@@ -6,6 +6,7 @@ from ..database import get_db
 from .. import crud, schemas
 from ..enums import ProjectStatus
 from ..errors import HTTPStatus, ERROR_NOT_FOUND, ERROR_DUPLICATE
+from ..services.rollback import RollbackPermissionError, RollbackValidationError
 
 router = APIRouter(prefix="/projects", tags=["合作项目管理"])
 
@@ -136,16 +137,58 @@ def change_project_status(
     return project
 
 
+@router.post(
+    "/{project_id}/rollback",
+    response_model=schemas.RollbackResponse,
+    summary="受控回退：授权操作人将项目退回到更早阶段",
+)
+def rollback_project(
+    project_id: int,
+    req: schemas.RollbackRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        outcome = crud.rollback_project(db, project_id=project_id, req=req)
+    except RollbackPermissionError as e:
+        raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail=str(e))
+    except RollbackValidationError as e:
+        raise HTTPException(status_code=HTTPStatus.CONFLICT, detail=str(e))
+    if outcome is None:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=ERROR_NOT_FOUND["project"],
+        )
+    log = outcome.log
+    return schemas.RollbackResponse(
+        project_id=project_id,
+        log_id=log.id,
+        request_id=log.request_id,
+        idempotent_replay=outcome.replay,
+        from_status=log.from_status,
+        to_status=log.to_status,
+        operator=log.operator,
+        reason=log.reason,
+        affected_records=outcome.affected_records,
+        logged_at=log.changed_at,
+    )
+
+
 @router.get(
     "/{project_id}/status-logs",
     response_model=List[schemas.ProjectStatusLog],
     summary="项目状态变更日志",
 )
-def get_status_logs(project_id: int, db: Session = Depends(get_db)):
+def get_status_logs(
+    project_id: int,
+    action: Optional[str] = Query(
+        None, description="按操作类型过滤，如 rollback 仅看受控回退记录"
+    ),
+    db: Session = Depends(get_db),
+):
     project = crud.get_project(db, project_id=project_id)
     if not project:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail=ERROR_NOT_FOUND["project"],
         )
-    return crud.get_project_status_logs(db, project_id=project_id)
+    return crud.get_project_status_logs(db, project_id=project_id, action=action)

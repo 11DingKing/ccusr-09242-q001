@@ -5,6 +5,7 @@ from sqlalchemy import (
     Float,
     DateTime,
     ForeignKey,
+    Index,
     Text,
     Date,
     Enum as SAEnum,
@@ -311,15 +312,26 @@ class ProjectMilestone(Base):
 
 class ProjectStatusLog(Base):
     __tablename__ = "project_status_logs"
+    __table_args__ = (
+        Index(
+            "uq_status_logs_project_request",
+            "project_id",
+            "request_id",
+            unique=True,
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     from_status = Column(SAEnum(ProjectStatus))
     to_status = Column(SAEnum(ProjectStatus), nullable=False)
-    changed_at = Column(DateTime, default=datetime.utcnow)
+    action = Column(String(32), nullable=False, default="transition", index=True)
+    request_id = Column(String(64))
     operator = Column(String(64))
     reason = Column(String(512))
     remarks = Column(Text)
+    affected_records = Column(Text)
+    changed_at = Column(DateTime, default=datetime.utcnow)
 
     project = relationship("Project", back_populates="status_logs")
 
